@@ -2,9 +2,11 @@ import 'dart:typed_data';
 
 import 'package:aves/model/entry.dart';
 import 'package:aves/utils/android_file_utils.dart';
+import 'package:aves/utils/math_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
 
 class AndroidAppService {
   static const platform = MethodChannel('deckers.thibault/aves/app');
@@ -64,7 +66,11 @@ class AndroidAppService {
     return false;
   }
 
-  static Future<bool> openMap(String geoUri) async {
+  static Future<bool> openMap(LatLng latLng) async {
+    final latitude = roundToPrecision(latLng.latitude, decimals: 6);
+    final longitude = roundToPrecision(latLng.longitude, decimals: 6);
+    final geoUri = 'geo:$latitude,$longitude?q=$latitude,$longitude';
+
     try {
       final result = await platform.invokeMethod('openMap', <String, dynamic>{
         'geoUri': geoUri,

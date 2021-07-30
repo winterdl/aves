@@ -1,30 +1,33 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:aves/model/entry.dart';
 import 'package:aves/model/settings/enums.dart';
 import 'package:aves/model/settings/settings.dart';
-import 'package:aves/widgets/viewer/info/maps/common.dart';
-import 'package:aves/widgets/viewer/info/maps/marker.dart';
+import 'package:aves/widgets/common/map/buttons.dart';
+import 'package:aves/widgets/common/map/decorator.dart';
+import 'package:aves/widgets/common/map/marker.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:tuple/tuple.dart';
+import 'package:latlong2/latlong.dart' as ll;
 
 class EntryGoogleMap extends StatefulWidget {
-  final LatLng latLng;
-  final String geoUri;
+  // `LatLng` used by `google_maps_flutter` is not the one from `latlong2` package
+  final ll.LatLng center;
   final double initialZoom;
-  final String markerId;
-  final WidgetBuilder markerBuilder;
+  final bool interactive;
+  final List<AvesEntry> markerEntries;
+  final Widget Function(AvesEntry entry) markerBuilder;
 
-  EntryGoogleMap({
+  const EntryGoogleMap({
     Key? key,
-    required Tuple2<double, double> latLng,
-    required this.geoUri,
+    required this.center,
     required this.initialZoom,
-    required this.markerId,
+    required this.interactive,
+    required this.markerEntries,
     required this.markerBuilder,
-  })  : latLng = LatLng(latLng.item1, latLng.item2),
-        super(key: key);
+  }) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _EntryGoogleMapState();
@@ -32,22 +35,23 @@ class EntryGoogleMap extends StatefulWidget {
 
 class _EntryGoogleMapState extends State<EntryGoogleMap> {
   GoogleMapController? _controller;
-  late Completer<Uint8List> _markerLoaderCompleter;
+  late Completer<List<Uint8List>> _markerLoaderCompleter;
 
   @override
   void initState() {
     super.initState();
-    _markerLoaderCompleter = Completer<Uint8List>();
+    _markerLoaderCompleter = Completer<List<Uint8List>>();
   }
 
   @override
   void didUpdateWidget(covariant EntryGoogleMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.latLng != oldWidget.latLng && _controller != null) {
-      _controller!.moveCamera(CameraUpdate.newLatLng(widget.latLng));
+    if (widget.center != oldWidget.center && _controller != null) {
+      _controller!.moveCamera(CameraUpdate.newLatLng(_toGoogleLatLng(widget.center)));
     }
-    if (widget.markerId != oldWidget.markerId) {
-      _markerLoaderCompleter = Completer<Uint8List>();
+    const eq = DeepCollectionEquality();
+    if (!eq.equals(widget.markerEntries, oldWidget.markerEntries)) {
+      _markerLoaderCompleter = Completer<List<Uint8List>>();
     }
   }
 
@@ -62,15 +66,15 @@ class _EntryGoogleMapState extends State<EntryGoogleMap> {
     return Stack(
       children: [
         MarkerGeneratorWidget(
-          key: Key(widget.markerId),
-          markers: [widget.markerBuilder(context)],
-          onComplete: (bitmaps) => _markerLoaderCompleter.complete(bitmaps.first),
+          markers: widget.markerEntries.map(widget.markerBuilder).toList(),
+          onComplete: (bitmaps) => _markerLoaderCompleter.complete(bitmaps),
         ),
         MapDecorator(
+          interactive: widget.interactive,
           child: _buildMap(),
         ),
         MapButtonPanel(
-          geoUri: widget.geoUri,
+          latLng: widget.center,
           zoomBy: _zoomBy,
         ),
       ],
@@ -78,35 +82,36 @@ class _EntryGoogleMapState extends State<EntryGoogleMap> {
   }
 
   Widget _buildMap() {
-    return FutureBuilder<Uint8List>(
+    return FutureBuilder<List<Uint8List>>(
         future: _markerLoaderCompleter.future,
         builder: (context, snapshot) {
           final markers = <Marker>{};
           if (!snapshot.hasError && snapshot.connectionState == ConnectionState.done) {
             final markerBytes = snapshot.data!;
-            markers.add(Marker(
-              markerId: MarkerId(widget.markerId),
-              icon: BitmapDescriptor.fromBytes(markerBytes),
-              position: widget.latLng,
-            ));
+            markers.addAll(widget.markerEntries.mapIndexed((i, entry) => Marker(
+                  markerId: MarkerId(entry.uri),
+                  icon: BitmapDescriptor.fromBytes(markerBytes[i]),
+                  position: _toGoogleLatLng(entry.latLng!),
+                )));
           }
+          final interactive = widget.interactive;
           return GoogleMap(
             // GoogleMap init perf issue: https://github.com/flutter/flutter/issues/28493
             initialCameraPosition: CameraPosition(
-              target: widget.latLng,
+              target: _toGoogleLatLng(widget.center),
               zoom: widget.initialZoom,
             ),
             onMapCreated: (controller) => setState(() => _controller = controller),
-            compassEnabled: false,
+            compassEnabled: interactive,
             mapToolbarEnabled: false,
             mapType: _toMapStyle(settings.infoMapStyle),
-            rotateGesturesEnabled: false,
-            scrollGesturesEnabled: false,
+            rotateGesturesEnabled: interactive,
+            scrollGesturesEnabled: interactive,
             zoomControlsEnabled: false,
-            zoomGesturesEnabled: false,
-            liteModeEnabled: false,
+            zoomGesturesEnabled: interactive,
             // no camera animation in lite mode
-            tiltGesturesEnabled: false,
+            liteModeEnabled: false,
+            tiltGesturesEnabled: interactive,
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
             markers: markers,
@@ -118,6 +123,8 @@ class _EntryGoogleMapState extends State<EntryGoogleMap> {
     settings.infoMapZoom += amount;
     _controller?.animateCamera(CameraUpdate.zoomBy(amount));
   }
+
+  LatLng _toGoogleLatLng(ll.LatLng latLng) => LatLng(latLng.latitude, latLng.longitude);
 
   MapType _toMapStyle(EntryMapStyle style) {
     switch (style) {

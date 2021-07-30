@@ -319,6 +319,8 @@
   "@menuActionSort": {},
   "menuActionGroup": "Group",
   "@menuActionGroup": {},
+  "menuActionMap": "Map",
+  "@menuActionMap": {},
   "menuActionStats": "Stats",
   "@menuActionStats": {},
 
@@ -703,6 +705,9 @@
   "@settingsCoordinateFormatTile": {},
   "settingsCoordinateFormatTitle": "Coordinate Format",
   "@settingsCoordinateFormatTitle": {},
+
+  "mapPageTitle": "Map",
+  "@mapPageTitle": {},
 
   "statsPageTitle": "Stats",
   "@statsPageTitle": {},

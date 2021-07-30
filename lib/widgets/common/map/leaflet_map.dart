@@ -1,30 +1,30 @@
+import 'package:aves/model/entry.dart';
 import 'package:aves/model/settings/enums.dart';
 import 'package:aves/model/settings/settings.dart';
-import 'package:aves/widgets/common/extensions/build_context.dart';
-import 'package:aves/widgets/viewer/info/common.dart';
-import 'package:aves/widgets/viewer/info/maps/common.dart';
-import 'package:aves/widgets/viewer/info/maps/scale_layer.dart';
+import 'package:aves/widgets/common/map/buttons.dart';
+import 'package:aves/widgets/common/map/decorator.dart';
+import 'package:aves/widgets/common/map/scale_layer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class EntryLeafletMap extends StatefulWidget {
-  final LatLng latLng;
-  final String geoUri;
+  final LatLng center;
   final double initialZoom;
+  final bool interactive;
   final EntryMapStyle style;
+  final List<AvesEntry> markerEntries;
+  final Widget Function(AvesEntry entry) markerBuilder;
   final Size markerSize;
-  final WidgetBuilder markerBuilder;
 
   const EntryLeafletMap({
     Key? key,
-    required this.latLng,
-    required this.geoUri,
+    required this.center,
     required this.initialZoom,
+    required this.interactive,
     required this.style,
+    required this.markerEntries,
     required this.markerBuilder,
     required this.markerSize,
   }) : super(key: key);
@@ -39,38 +39,34 @@ class _EntryLeafletMapState extends State<EntryLeafletMap> with TickerProviderSt
   @override
   void didUpdateWidget(covariant EntryLeafletMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.latLng != oldWidget.latLng) {
-      _mapController.move(widget.latLng, settings.infoMapZoom);
+    if (widget.center != oldWidget.center) {
+      _mapController.move(widget.center, settings.infoMapZoom);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        Stack(
-          children: [
-            MapDecorator(
-              child: _buildMap(),
-            ),
-            MapButtonPanel(
-              geoUri: widget.geoUri,
-              zoomBy: _zoomBy,
-            ),
-          ],
+        MapDecorator(
+          interactive: widget.interactive,
+          child: _buildMap(),
         ),
-        _buildAttribution(),
+        MapButtonPanel(
+          latLng: widget.center,
+          zoomBy: _zoomBy,
+        ),
       ],
     );
   }
 
   Widget _buildMap() {
+    final markerSize = widget.markerSize;
     return FlutterMap(
       options: MapOptions(
-        center: widget.latLng,
+        center: widget.center,
         zoom: widget.initialZoom,
-        interactiveFlags: InteractiveFlag.none,
+        interactiveFlags: widget.interactive ? InteractiveFlag.all : InteractiveFlag.none,
       ),
       mapController: _mapController,
       children: [
@@ -80,15 +76,17 @@ class _EntryLeafletMapState extends State<EntryLeafletMap> with TickerProviderSt
         ),
         MarkerLayerWidget(
           options: MarkerLayerOptions(
-            markers: [
-              Marker(
-                width: widget.markerSize.width,
-                height: widget.markerSize.height,
-                point: widget.latLng,
-                builder: widget.markerBuilder,
-                anchorPos: AnchorPos.align(AnchorAlign.top),
-              ),
-            ],
+            markers: widget.markerEntries
+                .map((entry) => Marker(
+                      width: markerSize.width,
+                      height: markerSize.height,
+                      point: entry.latLng!,
+                      builder: (context) => widget.markerBuilder(entry),
+                      anchorPos: AnchorPos.align(AnchorAlign.top),
+                    ))
+                .toList(),
+            rotate: true,
+            rotateAlignment: Alignment.bottomCenter,
           ),
         ),
       ],
@@ -108,37 +106,6 @@ class _EntryLeafletMapState extends State<EntryLeafletMap> with TickerProviderSt
     }
   }
 
-  Widget _buildAttribution() {
-    switch (widget.style) {
-      case EntryMapStyle.osmHot:
-        return _buildAttributionMarkdown(context.l10n.mapAttributionOsmHot);
-      case EntryMapStyle.stamenToner:
-      case EntryMapStyle.stamenWatercolor:
-        return _buildAttributionMarkdown(context.l10n.mapAttributionStamen);
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  Widget _buildAttributionMarkdown(String data) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: MarkdownBody(
-        data: data,
-        selectable: true,
-        styleSheet: MarkdownStyleSheet(
-          a: TextStyle(color: Theme.of(context).accentColor),
-          p: const TextStyle(color: Colors.white70, fontSize: InfoRowGroup.fontSize),
-        ),
-        onTapLink: (text, href, title) async {
-          if (href != null && await canLaunch(href)) {
-            await launch(href);
-          }
-        },
-      ),
-    );
-  }
-
   void _zoomBy(double amount) {
     final endZoom = (settings.infoMapZoom + amount).clamp(1.0, 16.0);
     settings.infoMapZoom = endZoom;
@@ -146,7 +113,7 @@ class _EntryLeafletMapState extends State<EntryLeafletMap> with TickerProviderSt
     final zoomTween = Tween<double>(begin: _mapController.zoom, end: endZoom);
     final controller = AnimationController(duration: const Duration(milliseconds: 200), vsync: this);
     final animation = CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
-    controller.addListener(() => _mapController.move(widget.latLng, zoomTween.evaluate(animation)));
+    controller.addListener(() => _mapController.move(widget.center, zoomTween.evaluate(animation)));
     animation.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         controller.dispose();
